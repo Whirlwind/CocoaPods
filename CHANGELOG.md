@@ -136,6 +136,13 @@ To install release candidates run `[sudo] gem install cocoapods --pre`
   be recompiled.  
   [Samuel Giddins](https://github.com/segiddins)
 
+* A pod built as a static library linked into multiple targets will only build
+  as a module when all of the targets it is linked into have opted into it.  
+  [Samuel Giddins](https://github.com/segiddins)
+
+* Use `CP_HOME_DIR` as the base for all default directories  
+  [mcfedr](https://github.com/mcfedr)
+  [#7917](https://github.com/CocoaPods/CocoaPods/pull/7917)
 
 ## 1.5.3 (2018-05-25)
 
