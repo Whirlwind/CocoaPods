@@ -54,17 +54,17 @@ module Pod
       def list_files_under(dir, basepath = nil)
         dirs = []
         files = []
-        basepath = dir.realpath unless basepath
+        basepath = dir unless basepath
         dir.children.each do |path|
           if path.directory?
-            dirs << path.to_s
+            dirs << path.relative_path_from(basepath).to_s
             if !path.symlink? || path.realpath.relative_path_from(basepath).to_s.start_with?('..')
               tmp_dirs, tmp_files = list_files_under(path, basepath)
               dirs.concat(tmp_dirs)
               files.concat(tmp_files)
             end
           else
-            files << path.to_s
+            files << path.relative_path_from(basepath).to_s
           end
         end
         [dirs, files]
@@ -78,11 +78,7 @@ module Pod
           raise Informative, "Attempt to read non existent folder `#{root}`."
         end
 
-        dirs = []
-        files = []
-        Dir.chdir(root.cleanpath.to_s) do
-          dirs, files = list_files_under(Pathname.new('.'))
-        end
+        dirs, files = list_files_under(root.cleanpath)
 
         dirs.sort_by!(&:upcase)
         files.sort_by!(&:upcase)
