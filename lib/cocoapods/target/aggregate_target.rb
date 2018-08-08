@@ -24,10 +24,6 @@ module Pod
     #
     attr_reader :user_project
 
-    # @return [Bool] the path of the user project is a symlink.
-    #
-    attr_reader :user_project_is_symlink
-
     # @return [Array<String>] the list of the UUIDs of the user targets that
     #         will be integrated by this target as identified by the analyzer.
     #
@@ -47,7 +43,7 @@ module Pod
 
     # @return [Array<PodTarget>] The dependencies for this target.
     #
-    attr_accessor :pod_targets
+    attr_reader :pod_targets
 
     # @return [Array<AggregateTarget>] The aggregate targets whose pods this
     #         target must be able to import, but will not directly link against.
@@ -65,22 +61,39 @@ module Pod
     # @param [Pathname] client_root @see #client_root
     # @param [Xcodeproj::Project] user_project @see #user_project
     # @param [Array<String>] user_target_uuids @see #user_target_uuids
-    # @param [Array<PodTarget>] pod_targets_for_build_configuration @see #pod_targets_for_build_configuration
+    # @param [Hash{String=>Array<PodTarget>}] pod_targets_for_build_configuration @see #pod_targets_for_build_configuration
     #
     def initialize(sandbox, host_requires_frameworks, user_build_configurations, archs, platform, target_definition,
                    client_root, user_project, user_target_uuids, pod_targets_for_build_configuration)
+      sandbox_use_symlink = self.class.check_user_project_is_symlink(user_project, sandbox)
+      sandbox = Sandbox::ShadowSandbox.new(sandbox_use_symlink ? client_root + 'Pods' : sandbox.root, sandbox)
       super(sandbox, host_requires_frameworks, user_build_configurations, archs, platform)
       raise "Can't initialize an AggregateTarget without a TargetDefinition!" if target_definition.nil?
       raise "Can't initialize an AggregateTarget with an abstract TargetDefinition!" if target_definition.abstract?
       @target_definition = target_definition
       @client_root = client_root
       @user_project = user_project
-      check_user_project_is_symlink
       @user_target_uuids = user_target_uuids
       @pod_targets_for_build_configuration = pod_targets_for_build_configuration
       @pod_targets = pod_targets_for_build_configuration.values.flatten.uniq
       @search_paths_aggregate_targets = []
       @xcconfigs = {}
+    end
+
+    # Merges this aggregate target with additional pod targets that are part of embedded aggregate targets.
+    #
+    # @param  [Hash{String=>Array<PodTarget>}] embedded_pod_targets_for_build_configuration
+    #         The pod targets to merge with.
+    #
+    # @return [AggregateTarget] a new instance of this aggregate target with additional pod targets to be used from
+    #         pod targets of embedded aggregate targets.
+    #
+    def merge_embedded_pod_targets(embedded_pod_targets_for_build_configuration)
+      merged = @pod_targets_for_build_configuration.merge(embedded_pod_targets_for_build_configuration) do |_, before, after|
+        (before + after).uniq
+      end
+      AggregateTarget.new(sandbox, host_requires_frameworks, user_build_configurations, archs, platform,
+                          target_definition, client_root, user_project, user_target_uuids, merged)
     end
 
     def build_settings(configuration_name = nil)
@@ -196,6 +209,19 @@ module Pod
       pod_targets.any?(&:uses_swift?)
     end
 
+    # @return [Boolean] Whether the target contains any resources
+    #
+    def includes_resources?
+      !resource_paths_by_config.values.all?(&:empty?)
+    end
+
+    # @return [Boolean] Whether the target contains framework to be embedded into
+    #         the user target
+    #
+    def includes_frameworks?
+      !framework_paths_by_config.values.all?(&:empty?)
+    end
+
     # @return [Hash{String => Array<Hash{Symbol => [String]}>}] The vendored dynamic artifacts and framework target
     #         input and output paths grouped by config
     #
@@ -271,11 +297,7 @@ module Pod
     # @return [Pathname] The relative path of the Pods directory from user project's directory.
     #
     def relative_pods_root_path
-      if user_project_is_symlink
-        Pathname.new('Pods')
-      else
-        sandbox.root.relative_path_from(client_root)
-      end
+      sandbox.root.relative_path_from(client_root)
     end
 
     # @return [String] The xcconfig path of the root from the `$(SRCROOT)`
@@ -289,10 +311,8 @@ module Pod
     #         root of the user project.
     #
     def podfile_dir_relative_path
-      unless user_project_is_symlink
-        podfile_path = target_definition.podfile.defined_in_file
-        return "${SRCROOT}/#{podfile_path.relative_path_from(client_root).dirname}" unless podfile_path.nil?
-      end
+      podfile_path = target_definition.podfile.defined_in_file
+      return "${SRCROOT}/#{podfile_path.relative_path_from(client_root).dirname}" unless podfile_path.nil?
       # Fallback to the standard path if the Podfile is not represented by a file.
       '${PODS_ROOT}/..'
     end
@@ -346,12 +366,16 @@ module Pod
       settings
     end
 
-    def check_user_project_is_symlink
+    public
+
+    def self.check_user_project_is_symlink(user_project, sandbox)
       if user_project && user_project.path && user_project.path.exist? && sandbox.root.exist?
         relative_cleanpath = user_project.path.cleanpath.relative_path_from(sandbox.root.cleanpath)
         relative_realpath = user_project.path.realpath.relative_path_from(sandbox.root.realpath)
-        @user_project_is_symlink = (relative_cleanpath != relative_realpath)
+        relative_cleanpath != relative_realpath
         # Pathname.realpath will return false if the directory is a symlink
+      else
+        false
       end
     end
   end

@@ -273,7 +273,7 @@ module Pod
                 @installer.install!
                 @project.support_files_group
                 group = @project['Pods/CoconutLib/Support Files']
-                group.children.map(&:display_name).sort.should.include 'CoconutLib.unit.xcconfig'
+                group.children.map(&:display_name).sort.should.include 'CoconutLib.unit-tests.xcconfig'
               end
 
               it 'does not add test header imports to umbrella header' do
@@ -319,7 +319,7 @@ module Pod
                 installation_result.test_resource_bundle_targets.count.should == 1
                 test_resource_bundle_target = @project.targets.find { |t| t.name == 'CoconutLib-CoconutLibTestResources' }
                 test_resource_bundle_target.build_configurations.each do |bc|
-                  bc.base_configuration_reference.real_path.basename.to_s.should == 'CoconutLib.unit.xcconfig'
+                  bc.base_configuration_reference.real_path.basename.to_s.should == 'CoconutLib.unit-tests.xcconfig'
                   bc.build_settings['CONFIGURATION_BUILD_DIR'].should.be.nil
                 end
               end
@@ -327,7 +327,7 @@ module Pod
               it 'creates embed frameworks script for test target' do
                 @coconut_pod_target.stubs(:requires_frameworks? => true)
                 @installer.install!
-                script_path = @coconut_pod_target.embed_frameworks_script_path_for_test_type(:unit)
+                script_path = @coconut_pod_target.embed_frameworks_script_path_for_test_spec(@coconut_pod_target.test_specs.first)
                 script = script_path.read
                 @coconut_pod_target.user_build_configurations.keys.each do |configuration|
                   script.should.include <<-eos.strip_heredoc
@@ -341,7 +341,7 @@ module Pod
               it 'adds the resources bundles for to the copy resources script for test target' do
                 @coconut_spec.test_specs.first.resource_bundle = { 'CoconutLibTestResources' => ['Tests/*.xib'] }
                 @installer.install!
-                script_path = @coconut_pod_target.copy_resources_script_path_for_test_type(:unit)
+                script_path = @coconut_pod_target.copy_resources_script_path_for_test_spec(@coconut_spec.test_specs.first)
                 script = script_path.read
                 @coconut_pod_target.user_build_configurations.keys.each do |configuration|
                   script.should.include <<-eos.strip_heredoc
@@ -582,12 +582,11 @@ module Pod
 
               describe 'resource bundle targets' do
                 before do
-                  @pod_target.file_accessors.first.stubs(:resource_bundles).returns('banana_bundle' => [])
+                  @spec.resource_bundles = { 'banana_bundle' => ['Resources/**/*'] }
+                end
+                it 'adds the resource bundle targets' do
                   @installer.install!
                   @bundle_target = @project.targets.find { |t| t.name == 'BananaLib-Pods-SampleProject-banana_bundle' }
-                end
-
-                it 'adds the resource bundle targets' do
                   @bundle_target.should.be.an.instance_of Xcodeproj::Project::Object::PBXNativeTarget
                   @bundle_target.product_reference.name.should == 'banana_bundle.bundle'
                   @bundle_target.product_reference.path.should == 'BananaLib-Pods-SampleProject-banana_bundle.bundle'
@@ -596,6 +595,8 @@ module Pod
                 end
 
                 it 'adds the build configurations to the resources bundle targets' do
+                  @installer.install!
+                  @bundle_target = @project.targets.find { |t| t.name == 'BananaLib-Pods-SampleProject-banana_bundle' }
                   file = config.sandbox.root + @pod_target.xcconfig_path
                   @bundle_target.build_configurations.each do |bc|
                     bc.base_configuration_reference.real_path.should == file
@@ -603,26 +604,58 @@ module Pod
                 end
 
                 it 'sets the correct product name' do
+                  @installer.install!
+                  @bundle_target = @project.targets.find { |t| t.name == 'BananaLib-Pods-SampleProject-banana_bundle' }
                   @bundle_target.build_configurations.each do |bc|
                     bc.build_settings['PRODUCT_NAME'].should == 'banana_bundle'
                   end
                 end
 
                 it 'sets the correct Info.plist file path' do
+                  @installer.install!
+                  @bundle_target = @project.targets.find { |t| t.name == 'BananaLib-Pods-SampleProject-banana_bundle' }
                   @bundle_target.build_configurations.each do |bc|
                     bc.build_settings['INFOPLIST_FILE'].should == 'Target Support Files/BananaLib-Pods-SampleProject/ResourceBundle-banana_bundle-BananaLib-Pods-SampleProject-Info.plist'
                   end
                 end
 
                 it 'sets the correct build dir' do
+                  @installer.install!
+                  @bundle_target = @project.targets.find { |t| t.name == 'BananaLib-Pods-SampleProject-banana_bundle' }
                   @bundle_target.build_configurations.each do |bc|
                     bc.build_settings['CONFIGURATION_BUILD_DIR'].should == '$(BUILD_DIR)/$(CONFIGURATION)$(EFFECTIVE_PLATFORM_NAME)/BananaLib-Pods-SampleProject'
                   end
                 end
 
                 it 'sets the correct targeted device family for the resource bundle targets' do
+                  @installer.install!
+                  @bundle_target = @project.targets.find { |t| t.name == 'BananaLib-Pods-SampleProject-banana_bundle' }
                   @bundle_target.build_configurations.each do |bc|
                     bc.build_settings['TARGETED_DEVICE_FAMILY'].should == '1,2'
+                  end
+                end
+
+                it 'sets the Swift version build setting when resources bundle contains sources and target has Swift' do
+                  @spec.resource_bundles = { 'banana_bundle' => ['Resources/**/*'] }
+                  @spec.module_map = nil
+                  @pod_target.stubs(:uses_swift?).returns(true)
+                  @pod_target.stubs(:swift_version).returns('3.2')
+                  @installer.install!
+                  @bundle_target = @project.targets.find { |t| t.name == 'BananaLib-Pods-SampleProject-banana_bundle' }
+                  @bundle_target.build_configurations.each do |bc|
+                    bc.build_settings['SWIFT_VERSION'].should == '3.2'
+                  end
+                end
+
+                it 'does not set the Swift version build setting when resources bundle contains sources and target has Swift' do
+                  @spec.resource_bundles = { 'banana_bundle' => ['Resources/**/*.png'] }
+                  @spec.module_map = nil
+                  @pod_target.stubs(:uses_swift?).returns(true)
+                  @pod_target.stubs(:swift_version).returns('3.2')
+                  @installer.install!
+                  @bundle_target = @project.targets.find { |t| t.name == 'BananaLib-Pods-SampleProject-banana_bundle' }
+                  @bundle_target.build_configurations.each do |bc|
+                    bc.build_settings['SWIFT_VERSION'].should.be.nil
                   end
                 end
               end
@@ -768,6 +801,9 @@ module Pod
               @installer.install!
               @project.targets.map(&:name).should == ['BananaLib']
               @project.targets.first.class.should == Xcodeproj::Project::PBXAggregateTarget
+              @project.targets.first.build_configurations.each do |config|
+                config.build_settings['SDKROOT'].should == 'iphoneos'
+              end
             end
 
             it 'adds xcconfig file reference for the aggregate placeholder native target' do
@@ -776,6 +812,15 @@ module Pod
               @project.support_files_group
               group = @project['Pods/BananaLib/Support Files']
               group.children.map(&:display_name).sort.should == ['BananaLib.xcconfig']
+            end
+
+            it 'does not set architectures for targets that should not build' do
+              @pod_target.stubs(:should_build?).returns(false)
+              result = @installer.install!
+              target = result.native_target
+              target.build_configurations.each do |config|
+                config.build_settings['ARCHS'].should.be.nil
+              end
             end
 
             #--------------------------------------------------------------------------------#
@@ -1004,7 +1049,7 @@ module Pod
                 end
                 core_data_resources_file.should.be.nil
 
-                # The data model should not be in the resources phase.
+                # The data model should be in the compile sources phase.
                 core_data_sources_file = native_target.source_build_phase.files.find do |bf|
                   bf.file_ref.path == 'Resources/Sample.xcdatamodeld'
                 end
@@ -1057,7 +1102,9 @@ module Pod
 
               it 'adds Core Data models directly to resource bundle' do
                 # The model directory item should be present.
-                dir_build_file = @bundle_target.resources_build_phase.files.find { |bf| bf.file_ref.path == 'Resources/Sample.xcdatamodeld' }
+                dir_build_file = @bundle_target.resources_build_phase.files.find do |bf|
+                  bf.file_ref.path == 'Resources/Sample.xcdatamodeld'
+                end
                 dir_build_file.should.be.not.nil
 
                 # An item within the model directory should not be present.
@@ -1069,7 +1116,9 @@ module Pod
 
               it 'adds Core Data migration mapping models directly to resources' do
                 # The model directory item should be present.
-                dir_build_file = @bundle_target.resources_build_phase.files.find { |bf| bf.file_ref.path == 'Resources/Migration.xcmappingmodel' }
+                dir_build_file = @bundle_target.resources_build_phase.files.find do |bf|
+                  bf.file_ref.path == 'Resources/Migration.xcmappingmodel'
+                end
                 dir_build_file.should.be.not.nil
 
                 # An item within the model directory should not be present.

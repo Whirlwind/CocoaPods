@@ -162,6 +162,83 @@ module Pod
         target.platform.to_s.should == 'iOS 6.0'
       end
 
+      describe 'platform architectures' do
+        it 'correctly determines when a platform requires 64-bit architectures' do
+          @podfile = Pod::Podfile.new do
+            project 'SampleProject/SampleProject'
+            platform :ios, '11.0'
+            use_frameworks!
+            target 'TestRunner' do
+              pod 'AFNetworking'
+              pod 'JSONKit'
+            end
+          end
+          @analyzer = Pod::Installer::Analyzer.new(config.sandbox, @podfile, nil)
+
+          @analyzer.send(:requires_64_bit_archs?, Platform.new(:ios, '11.0')).should.be.true
+          @analyzer.send(:requires_64_bit_archs?, Platform.new(:ios, '10.0')).should.be.false
+          @analyzer.send(:requires_64_bit_archs?, Platform.new(:osx)).should.be.true
+          @analyzer.send(:requires_64_bit_archs?, Platform.new(:tvos)).should.be.false
+          @analyzer.send(:requires_64_bit_archs?, Platform.new(:watchos)).should.be.false
+        end
+
+        it 'forces 64-bit architectures when required' do
+          @podfile = Pod::Podfile.new do
+            project 'SampleProject/SampleProject'
+            platform :ios, '11.0'
+            use_frameworks!
+            target 'TestRunner' do
+              pod 'AFNetworking'
+              pod 'JSONKit'
+            end
+          end
+          @analyzer = Pod::Installer::Analyzer.new(config.sandbox, @podfile, nil)
+          result = @analyzer.analyze
+
+          result.pod_targets.map(&:archs).uniq.should == [['$(ARCHS_STANDARD_64_BIT)']]
+        end
+
+        it 'forces 64-bit architectures only for the targets that require it' do
+          @podfile = Pod::Podfile.new do
+            project 'SampleProject/SampleProject'
+
+            use_frameworks!
+            target 'SampleProject' do
+              platform :ios, '10.0'
+              pod 'AFNetworking'
+              target 'TestRunner' do
+                platform :ios, '11.0'
+                pod 'JSONKit'
+                pod 'SOCKit'
+              end
+            end
+          end
+          @analyzer = Pod::Installer::Analyzer.new(config.sandbox, @podfile, nil)
+          result = @analyzer.analyze
+
+          non_64_bit_target = result.pod_targets.shift
+
+          non_64_bit_target.send(:archs).should == []
+          result.pod_targets.map(&:archs).uniq.should == [['$(ARCHS_STANDARD_64_BIT)']]
+        end
+
+        it 'does not specify archs value unless required' do
+          @podfile = Pod::Podfile.new do
+            project 'SampleProject/SampleProject'
+            platform :ios, '10.0'
+            use_frameworks!
+            target 'TestRunner' do
+              pod 'AFNetworking'
+              pod 'JSONKit'
+            end
+          end
+          @analyzer = Pod::Installer::Analyzer.new(config.sandbox, @podfile, nil)
+          result = @analyzer.analyze
+
+          result.pod_targets.map(&:archs).uniq.should == [[]]
+        end
+      end
+
       describe 'abstract targets' do
         it 'resolves' do
           @podfile = Pod::Podfile.new do
@@ -1047,6 +1124,16 @@ module Pod
             'Pods-Sample Extensions Project/monkey',
             'Pods-Today Extension/monkey',
           ].sort
+          result.targets.flat_map { |at| at.pod_targets_for_build_configuration('Debug').map { |pt| "#{at.name}/Debug/#{pt.name}" } }.sort.should == [
+            'Pods-Sample Extensions Project/Debug/JSONKit',
+            'Pods-Sample Extensions Project/Debug/monkey',
+            'Pods-Today Extension/Debug/monkey',
+          ].sort
+          result.targets.flat_map { |at| at.pod_targets_for_build_configuration('Release').map { |pt| "#{at.name}/Release/#{pt.name}" } }.sort.should == [
+            'Pods-Sample Extensions Project/Release/JSONKit',
+            'Pods-Sample Extensions Project/Release/monkey',
+            'Pods-Today Extension/Release/monkey',
+          ].sort
         end
 
         it 'does not copy extension pod targets to host target, when not use_frameworks!' do
@@ -1268,6 +1355,7 @@ module Pod
             pod 'RestKit', '~> 0.23.0'
           end
         end
+        config.sandbox.prepare
         analyzer = Pod::Installer::Analyzer.new(config.sandbox, podfile, nil)
         e = should.raise(Informative) { analyzer.analyze }
 

@@ -19,6 +19,10 @@ module Pod
       autoload :TargetInspectionResult,    'cocoapods/installer/analyzer/target_inspection_result'
       autoload :TargetInspector,           'cocoapods/installer/analyzer/target_inspector'
 
+      # @return [String] The version of iOS which requires binaries with only 64-bit architectures
+      #
+      IOS_64_BIT_ONLY_VERSION = Version.new('11.0')
+
       # @return [Sandbox] The sandbox to use for this analysis.
       #
       attr_reader :sandbox
@@ -262,10 +266,14 @@ module Pod
       #         targets are considered, otherwise, all other types are have
       #         their pods copied to their host targets as well (extensions, etc.)
       #
-      def copy_embedded_target_pod_targets_to_host(aggregate_target, embedded_aggregate_targets, libraries_only)
-        return if aggregate_target.requires_host_target?
+      # @return [Hash{String=>Array<PodTarget>}] the additional pod targets to include to the host
+      #          keyed by their configuration.
+      #
+      def embedded_target_pod_targets_by_host(aggregate_target, embedded_aggregate_targets, libraries_only)
+        return {} if aggregate_target.requires_host_target?
         pod_target_names = Set.new(aggregate_target.pod_targets.map(&:name))
         aggregate_user_target_uuids = Set.new(aggregate_target.user_targets.map(&:uuid))
+        embedded_pod_targets_by_build_config = Hash.new([].freeze)
         embedded_aggregate_targets.each do |embedded_aggregate_target|
           # Skip non libraries in library-only mode
           next if libraries_only && !embedded_aggregate_target.library?
@@ -279,11 +287,14 @@ module Pod
             host_target_uuids = Set.new(aggregate_target.user_project.host_targets_for_embedded_target(embedded_user_target).map(&:uuid))
             !aggregate_user_target_uuids.intersection(host_target_uuids).empty?
           end
-          # This embedded target is hosted by the aggregate target's user_target; copy over the non-duplicate pod_targets
-          aggregate_target.pod_targets = aggregate_target.pod_targets + embedded_aggregate_target.pod_targets.select do |pod_target|
-            !pod_target_names.include? pod_target.name
+          embedded_aggregate_target.user_build_configurations.keys.each do |configuration_name|
+            embedded_pod_targets = embedded_aggregate_target.pod_targets.select do |pod_target|
+              !pod_target_names.include? pod_target.name
+            end
+            embedded_pod_targets_by_build_config[configuration_name] = embedded_pod_targets
           end
         end
+        embedded_pod_targets_by_build_config
       end
 
       # Raises an error if there are embedded targets in the Podfile, but
@@ -391,14 +402,17 @@ module Pod
           analyze_host_targets_in_podfile(aggregate_targets, embedded_targets)
 
           use_frameworks_embedded_targets, non_use_frameworks_embedded_targets = embedded_targets.partition(&:requires_frameworks?)
-          aggregate_targets.each do |target|
+          aggregate_targets = aggregate_targets.map do |aggregate_target|
             # For targets that require frameworks, we always have to copy their pods to their
             # host targets because those frameworks will all be loaded from the host target's bundle
-            copy_embedded_target_pod_targets_to_host(target, use_frameworks_embedded_targets, false)
+            embedded_pod_targets = embedded_target_pod_targets_by_host(aggregate_target, use_frameworks_embedded_targets, false)
 
             # For targets that don't require frameworks, we only have to consider library-type
             # targets because their host targets will still need to link their pods
-            copy_embedded_target_pod_targets_to_host(target, non_use_frameworks_embedded_targets, true)
+            embedded_pod_targets.merge!(embedded_target_pod_targets_by_host(aggregate_target, non_use_frameworks_embedded_targets, true))
+
+            next aggregate_target if embedded_pod_targets.empty?
+            aggregate_target.merge_embedded_pod_targets(embedded_pod_targets)
           end
         end
         aggregate_targets.each do |target|
@@ -425,6 +439,7 @@ module Pod
       # @return [AggregateTarget]
       #
       def generate_target(target_definition, target_inspections, pod_targets, resolver_specs_by_target)
+        target_requires_64_bit = requires_64_bit_archs?(target_definition.platform)
         if installation_options.integrate_targets?
           target_inspection = target_inspections[target_definition]
           raise "missing inspection: #{target_definition.name}" unless target_inspection
@@ -432,22 +447,22 @@ module Pod
           client_root = user_project.path.dirname.cleanpath
           user_target_uuids = target_inspection.project_target_uuids
           user_build_configurations = target_inspection.build_configurations
-          archs = target_inspection.archs
+          archs = target_requires_64_bit ? ['$(ARCHS_STANDARD_64_BIT)'] : target_inspection.archs
         else
           user_project = nil
           client_root = config.installation_root.cleanpath
           user_target_uuids = []
           user_build_configurations = target_definition.build_configurations || Target::DEFAULT_BUILD_CONFIGURATIONS
-          archs = []
-          if target_definition.platform && target_definition.platform.name == :osx
-            archs = ['$(ARCHS_STANDARD_64_BIT)']
-          end
+          archs = target_requires_64_bit ? ['$(ARCHS_STANDARD_64_BIT)'] : []
         end
         platform = target_definition.platform
         build_configurations = user_build_configurations.keys.concat(target_definition.all_whitelisted_configurations).uniq
-        pod_targets = filter_pod_targets_for_target_definition(target_definition, pod_targets, resolver_specs_by_target, build_configurations)
+        pod_targets_for_build_configuration = filter_pod_targets_for_target_definition(target_definition, pod_targets,
+                                                                                       resolver_specs_by_target,
+                                                                                       build_configurations)
         AggregateTarget.new(sandbox, target_definition.uses_frameworks?, user_build_configurations, archs, platform,
-                            target_definition, client_root, user_project, user_target_uuids, pod_targets)
+                            target_definition, client_root, user_project, user_target_uuids,
+                            pod_targets_for_build_configuration)
       end
 
       # @return [Array<PodTarget>] The model representations of pod targets.
@@ -632,8 +647,8 @@ module Pod
 
       # Create a target for each spec group
       #
-      # @param  [TargetDefinitions] target_definitions
-      #         the aggregate target
+      # @param  [Array<TargetDefinition>] target_definitions
+      #         the target definitions of the aggregate target
       #
       # @param  [Array<TargetInspection>] target_inspections
       #         the user target inspections used to construct the aggregate and pod targets.
@@ -647,37 +662,24 @@ module Pod
       # @return [PodTarget]
       #
       def generate_pod_target(target_definitions, target_inspections, specs, scope_suffix: nil)
+        target_requires_64_bit = target_definitions.all? { |td| requires_64_bit_archs?(td.platform) }
         if installation_options.integrate_targets?
           target_inspections = target_inspections.select { |t, _| target_definitions.include?(t) }.values
           user_build_configurations = target_inspections.map(&:build_configurations).reduce({}, &:merge)
-          archs = target_inspections.flat_map(&:archs).compact.uniq.sort
+          archs = if target_requires_64_bit
+                    ['$(ARCHS_STANDARD_64_BIT)']
+                  else
+                    target_inspections.flat_map(&:archs).compact.uniq.sort
+                  end
         else
           user_build_configurations = {}
-          archs = []
-          if target_definitions.first.platform.name == :osx
-            archs = ['$(ARCHS_STANDARD_64_BIT)']
-          end
+          archs = target_requires_64_bit ? ['$(ARCHS_STANDARD_64_BIT)'] : []
         end
         host_requires_frameworks = target_definitions.any?(&:uses_frameworks?)
         platform = determine_platform(specs, target_definitions, host_requires_frameworks)
         file_accessors = create_file_accessors(specs, platform)
         PodTarget.new(sandbox, host_requires_frameworks, user_build_configurations, archs, platform, specs,
-                      target_definitions, file_accessors, scope_suffix).tap do |target|
-          name = target.root_spec.name
-          if sandbox.local?(name)
-            # Create a symlink at `$PODS_ROOT/#{name}` to the path of the local pod,
-            # making the local pod's files available at `${PODS_ROOT}/#{name}`
-            poddir = sandbox.pod_dir(target.root_spec.name)
-            realdir = sandbox.pod_realdir(name)
-            unless sandbox.local_path_was_absolute?(name)
-              realdir = realdir.realpath.relative_path_from(poddir.dirname.realpath)
-            end
-            if File.exist?(poddir)
-              FileUtils.rm_r(poddir)
-            end
-            File.symlink(realdir, poddir)
-          end
-        end
+                      target_definitions, file_accessors, scope_suffix)
       end
 
       # Creates the file accessors for a given pod.
@@ -692,7 +694,7 @@ module Pod
       #
       def create_file_accessors(specs, platform)
         name = specs.first.name
-        pod_root = sandbox.pod_dir(name)
+        pod_root = sandbox.pod_realdir(name)
         path_list = Sandbox::PathList.new(pod_root)
         specs.map do |spec|
           Sandbox::FileAccessor.new(path_list, spec.consumer(platform))
@@ -938,6 +940,25 @@ module Pod
           sandbox_state.print
         end
         sandbox_state
+      end
+
+      # @param  [Platform] platform
+      #         The platform to build against
+      #
+      # @return [Boolean] Whether the platform requires 64-bit architectures
+      #
+      def requires_64_bit_archs?(platform)
+        return false unless platform
+        case platform.name
+        when :osx
+          true
+        when :ios
+          platform.deployment_target >= IOS_64_BIT_ONLY_VERSION
+        when :watchos
+          false
+        when :tvos
+          false
+        end
       end
 
       #-----------------------------------------------------------------------#

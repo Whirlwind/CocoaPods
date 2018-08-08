@@ -90,8 +90,8 @@ module Pod
                 create_prefix_header(path, file_accessors, target.platform, [native_target])
               end
               unless skip_pch?(target.test_specs)
-                target.supported_test_types.each do |test_type|
-                  path = target.prefix_header_path_for_test_type(test_type)
+                target.test_specs.each do |test_spec|
+                  path = target.prefix_header_path_for_test_spec(test_spec)
                   create_prefix_header(path, test_file_accessors, target.platform, test_native_targets)
                 end
               end
@@ -259,9 +259,11 @@ module Pod
           # @return [Array<PBXNativeTarget>] the test native targets created.
           #
           def add_test_targets
-            target.supported_test_types.map do |test_type|
+            target.test_specs.map do |test_spec|
+              spec_consumer = test_spec.consumer(target.platform)
+              test_type = spec_consumer.test_type
               product_type = target.product_type_for_test_type(test_type)
-              name = target.test_target_label(test_type)
+              name = target.test_target_label(test_spec)
               platform_name = target.platform.name
               language = target.uses_swift_for_test_type?(test_type) ? :swift : :objc
               test_native_target = project.new_target(product_type, name, platform_name, deployment_target, nil, language)
@@ -294,13 +296,13 @@ module Pod
               end
 
               # Test native targets also need frameworks and resources to be copied over to their xctest bundle.
-              create_test_target_embed_frameworks_script(test_type)
-              create_test_target_copy_resources_script(test_type)
+              create_test_target_embed_frameworks_script(test_spec)
+              create_test_target_copy_resources_script(test_spec)
 
-              # Generate vanila Info.plist for test target similar to the one xcode gererates for new test target.
+              # Generate vanilla Info.plist for test target similar to the one Xcode generates for new test target.
               # This creates valid test bundle accessible at the runtime, allowing tests to load bundle resources
               # defined in podspec.
-              create_info_plist_file(target.info_plist_path_for_test_type(test_type), test_native_target, '1.0', target.platform, :bndl)
+              create_info_plist_file(target.info_plist_path_for_test_spec(test_spec), test_native_target, '1.0', target.platform, :bndl)
 
               test_native_target
             end
@@ -326,10 +328,12 @@ module Pod
                   bundle_product.name = bundle_file_name
                 end
 
+                contains_compile_phase_refs = false
                 filter_resource_file_references(paths) do |resource_phase_refs, compile_phase_refs|
                   # Resource bundles are only meant to have resources, so install everything
                   # into the resources phase. See note in filter_resource_file_references.
                   resource_bundle_target.add_resources(resource_phase_refs + compile_phase_refs)
+                  contains_compile_phase_refs = !compile_phase_refs.empty?
                 end
 
                 target.user_build_configurations.each do |bc_name, type|
@@ -343,13 +347,19 @@ module Pod
                 info_plist_path = path.dirname + "ResourceBundle-#{bundle_name}-#{path.basename}"
                 create_info_plist_file(info_plist_path, resource_bundle_target, target.version, target.platform, :bndl)
 
-                resource_bundle_target.build_configurations.each do |c|
-                  c.build_settings['PRODUCT_NAME'] = bundle_name
+                resource_bundle_target.build_configurations.each do |configuration|
+                  configuration.build_settings['PRODUCT_NAME'] = bundle_name
                   # Do not set the CONFIGURATION_BUILD_DIR for resource bundles that are only meant for test targets.
                   # This is because the test target itself also does not set this configuration build dir and it expects
                   # all bundles to be copied from the default path.
                   unless file_accessor.spec.test_specification?
-                    c.build_settings['CONFIGURATION_BUILD_DIR'] = target.configuration_build_dir('$(BUILD_DIR)/$(CONFIGURATION)$(EFFECTIVE_PLATFORM_NAME)')
+                    configuration.build_settings['CONFIGURATION_BUILD_DIR'] = target.configuration_build_dir('$(BUILD_DIR)/$(CONFIGURATION)$(EFFECTIVE_PLATFORM_NAME)')
+                  end
+
+                  # Set the `SWIFT_VERSION` build setting for resource bundles that could have resources that get
+                  # compiled such as an `xcdatamodeld` file which has 'Swift' as its code generation language.
+                  if contains_compile_phase_refs && target.uses_swift?
+                    configuration.build_settings['SWIFT_VERSION'] = target.swift_version
                   end
 
                   # Set the correct device family for this bundle, based on the platform
@@ -360,7 +370,7 @@ module Pod
                   }
 
                   if (family = device_family_by_platform[target.platform.name])
-                    c.build_settings['TARGETED_DEVICE_FAMILY'] = family
+                    configuration.build_settings['TARGETED_DEVICE_FAMILY'] = family
                   end
                 end
 
@@ -406,13 +416,13 @@ module Pod
             target.test_specs.each do |test_spec|
               spec_consumer = test_spec.consumer(target.platform)
               test_type = spec_consumer.test_type
-              path = target.xcconfig_path(test_type.to_s)
+              path = target.xcconfig_path("#{test_type.capitalize}-#{test_spec.name.split('/')[1..-1].join('-')}")
               update_changed_file(Target::BuildSettings::PodTargetSettings.new(target, test_spec), path)
               xcconfig_file_ref = add_file_to_support_group(path)
 
               test_native_targets.each do |test_target|
                 test_target.build_configurations.each do |test_target_bc|
-                  test_target_swift_debug_hack(test_target_bc)
+                  test_target_swift_debug_hack(test_spec, test_target_bc)
                   test_target_bc.base_configuration_reference = xcconfig_file_ref
                 end
               end
@@ -424,17 +434,18 @@ module Pod
 
           # Creates a script that copies the resources to the bundle of the test target.
           #
-          # @param [Symbol] test_type
-          #        The test type to create the script for.
+          # @param [Specification] test_spec
+          #        The test spec to create the copy resources script for.
           #
           # @return [void]
           #
-          def create_test_target_copy_resources_script(test_type)
-            path = target.copy_resources_script_path_for_test_type(test_type)
-            pod_targets = target.all_dependent_targets
+          def create_test_target_copy_resources_script(test_spec)
+            path = target.copy_resources_script_path_for_test_spec(test_spec)
+            pod_targets = target.dependent_targets_for_test_spec(test_spec)
             resource_paths_by_config = target.user_build_configurations.keys.each_with_object({}) do |config, resources_by_config|
               resources_by_config[config] = pod_targets.flat_map do |pod_target|
-                spec_paths_to_include = pod_target == target ? pod_target.specs.map(&:name) : pod_target.non_test_specs.map(&:name)
+                spec_paths_to_include = pod_target.non_test_specs.map(&:name)
+                spec_paths_to_include << test_spec.name if pod_target == target
                 pod_target.resource_paths.values_at(*spec_paths_to_include).flatten.compact
               end
             end
@@ -445,17 +456,18 @@ module Pod
 
           # Creates a script that embeds the frameworks to the bundle of the test target.
           #
-          # @param [Symbol] test_type
-          #        The test type to create the script for.
+          # @param [Specification] test_spec
+          #        The test spec to create the embed frameworks script for.
           #
           # @return [void]
           #
-          def create_test_target_embed_frameworks_script(test_type)
-            path = target.embed_frameworks_script_path_for_test_type(test_type)
-            pod_targets = target.all_dependent_targets
+          def create_test_target_embed_frameworks_script(test_spec)
+            path = target.embed_frameworks_script_path_for_test_spec(test_spec)
+            pod_targets = target.dependent_targets_for_test_spec(test_spec)
             framework_paths_by_config = target.user_build_configurations.keys.each_with_object({}) do |config, paths_by_config|
               paths_by_config[config] = pod_targets.flat_map do |pod_target|
-                spec_paths_to_include = pod_target == target ? pod_target.specs.map(&:name) : pod_target.non_test_specs.map(&:name)
+                spec_paths_to_include = pod_target.non_test_specs.map(&:name)
+                spec_paths_to_include << test_spec.name if pod_target == target
                 pod_target.framework_paths.values_at(*spec_paths_to_include).flatten.compact.uniq
               end
             end
@@ -469,9 +481,9 @@ module Pod
           #
           # @return [void]
           #
-          def test_target_swift_debug_hack(test_target_bc)
+          def test_target_swift_debug_hack(test_spec, test_target_bc)
             return unless test_target_bc.debug?
-            return unless target.all_dependent_targets.any?(&:uses_swift?)
+            return unless target.dependent_targets_for_test_spec(test_spec).any?(&:uses_swift?)
             ldflags = test_target_bc.build_settings['OTHER_LDFLAGS'] ||= '$(inherited)'
             ldflags << ' -lswiftSwiftOnoneSupport'
           end
@@ -704,8 +716,8 @@ module Pod
           end
 
           def test_native_target_from_spec_consumer(spec_consumer, test_native_targets)
-            test_native_targets.find do |native_target|
-              native_target.symbol_type == target.product_type_for_test_type(spec_consumer.test_type)
+            test_native_targets.find do |test_native_target|
+              test_native_target.name == target.test_target_label(spec_consumer.spec)
             end
           end
 
@@ -715,13 +727,14 @@ module Pod
           # @return [PBXAggregateTarget] the native target that was added.
           #
           def add_placeholder_target
-            native_target = project.new_aggregate_target(target.label)
-            native_target.deployment_target = deployment_target
+            native_target = project.new_aggregate_target(target.label, [], target.platform.name, deployment_target)
             target.user_build_configurations.each do |bc_name, type|
               native_target.add_build_configuration(bc_name, type)
             end
-            native_target.build_configurations.each do |configuration|
-              configuration.build_settings['ARCHS'] = target.archs
+            unless target.archs.empty?
+              native_target.build_configurations.each do |configuration|
+                configuration.build_settings['ARCHS'] = target.archs
+              end
             end
             native_target
           end
@@ -739,8 +752,8 @@ module Pod
           #
           def add_swift_static_library_compatibility_header_phase(native_target)
             if custom_module_map
-              raise Informative, 'Using Swift static libraries with custom module maps does not yet work.' \
-                                 "Please build #{pod_target.label} as a framework or remove the custom module map for the time being."
+              raise Informative, 'Using Swift static libraries with custom module maps is currently not supported. ' \
+                                 "Please build `#{target.label}` as a framework or remove the custom module map."
             end
 
             build_phase = native_target.new_shell_script_build_phase('Copy generated compatibility header')

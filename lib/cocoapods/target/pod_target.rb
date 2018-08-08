@@ -112,7 +112,7 @@ module Pod
       end
     end
 
-    # @return [String] the Swift version for the target. If the pod author has provided a swift version
+    # @return [String] the Swift version for the target. If the pod author has provided a Swift version
     #                  then that is the one returned, otherwise the Swift version is determined by the user
     #                  targets that include this pod target.
     #
@@ -247,9 +247,9 @@ module Pod
         file_accessors.each_with_object({}) do |file_accessor, hash|
           frameworks = []
           file_accessor.vendored_dynamic_artifacts.map do |framework_path|
-            relative_path_to_sandbox = framework_path.relative_path_from(sandbox.root)
+            relative_path = relative_path_to_sandbox(file_accessor, framework_path)
             framework = { :name => framework_path.basename.to_s,
-                          :input_path => "${PODS_ROOT}/#{relative_path_to_sandbox}",
+                          :input_path => "${PODS_ROOT}/#{relative_path}",
                           :output_path => "${TARGET_BUILD_DIR}/${FRAMEWORKS_FOLDER_PATH}/#{framework_path.basename}" }
             # Until this can be configured, assume the dSYM file uses the file name as the framework.
             # See https://github.com/CocoaPods/CocoaPods/issues/1698
@@ -257,7 +257,7 @@ module Pod
             dsym_path = Pathname.new("#{framework_path.dirname}/#{dsym_name}")
             if dsym_path.exist?
               framework[:dsym_name] = dsym_name
-              framework[:dsym_input_path] = "${PODS_ROOT}/#{relative_path_to_sandbox}.dSYM"
+              framework[:dsym_input_path] = "${PODS_ROOT}/#{relative_path}.dSYM"
               framework[:dsym_output_path] = "${DWARF_DSYM_FOLDER_PATH}/#{dsym_name}"
             end
             frameworks << framework
@@ -278,7 +278,7 @@ module Pod
     def resource_paths
       @resource_paths ||= begin
         file_accessors.each_with_object({}) do |file_accessor, hash|
-          resource_paths = file_accessor.resources.map { |res| "${PODS_ROOT}/#{res.relative_path_from(sandbox.project.path.dirname)}" }
+          resource_paths = file_accessor.resources.map { |res| "${PODS_ROOT}/#{relative_path_to_sandbox(file_accessor, res)}" }
           prefix = Pod::Target::BuildSettings::CONFIGURATION_BUILD_DIR_VARIABLE
           prefix = configuration_build_dir unless file_accessor.spec.test_specification?
           resource_bundle_paths = file_accessor.resource_bundles.keys.map { |name| "#{prefix}/#{name.shellescape}.bundle" }
@@ -302,22 +302,6 @@ module Pod
         :unit_test_bundle
       else
         raise Informative, "Unknown test type `#{test_type}`."
-      end
-    end
-
-    # Returns the corresponding test type given the product type.
-    #
-    # @param  [Symbol] product_type
-    #         The product type to map to a test type.
-    #
-    # @return [Symbol] The native product type to use.
-    #
-    def test_type_for_product_type(product_type)
-      case product_type
-      when :unit_test_bundle
-        :unit
-      else
-        raise Informative, "Unknown product type `#{product_type}`."
       end
     end
 
@@ -347,6 +331,12 @@ module Pod
       end
     end
 
+    # @return [Pathname] the absolute path of the prefix header file.
+    #
+    def prefix_header_path
+      support_files_dir + "#{label}-prefix.pch"
+    end
+
     # @param  [String] bundle_name
     #         The name of the bundle product, which is given by the +spec+.
     #
@@ -356,55 +346,49 @@ module Pod
       "#{label}-#{bundle_name}"
     end
 
-    # @param  [Symbol] test_type
-    #         The test type to use for producing the test label.
+    # @param  [Specification] test_spec
+    #         The test spec to use for producing the test label.
     #
     # @return [String] The derived name of the test target.
     #
-    def test_target_label(test_type)
-      "#{label}-#{test_type.capitalize}-Tests"
+    def test_target_label(test_spec)
+      "#{label}-#{test_spec.test_type.capitalize}-#{test_spec.name.split('/')[1..-1].join('-')}"
     end
 
-    # @param  [Symbol] test_type
-    #         The test type this embed frameworks script path is for.
+    # @param  [Specification] test_spec
+    #         The test spec this embed frameworks script path is for.
     #
     # @return [Pathname] The absolute path of the copy resources script for the given test type.
     #
-    def copy_resources_script_path_for_test_type(test_type)
-      support_files_dir + "#{test_target_label(test_type)}-resources.sh"
+    def copy_resources_script_path_for_test_spec(test_spec)
+      support_files_dir + "#{test_target_label(test_spec)}-resources.sh"
     end
 
-    # @param  [Symbol] test_type
-    #         The test type this embed frameworks script path is for.
+    # @param  [Specification] test_spec
+    #         The test spec this embed frameworks script path is for.
     #
     # @return [Pathname] The absolute path of the embed frameworks script for the given test type.
     #
-    def embed_frameworks_script_path_for_test_type(test_type)
-      support_files_dir + "#{test_target_label(test_type)}-frameworks.sh"
+    def embed_frameworks_script_path_for_test_spec(test_spec)
+      support_files_dir + "#{test_target_label(test_spec)}-frameworks.sh"
     end
 
-    # @param  [Symbol] test_type
-    #         The test type this Info.plist path is for.
+    # @param  [Specification] test_spec
+    #         The test spec this Info.plist path is for.
     #
     # @return [Pathname] The absolute path of the Info.plist for the given test type.
     #
-    def info_plist_path_for_test_type(test_type)
-      support_files_dir + "#{test_target_label(test_type)}-Info.plist"
+    def info_plist_path_for_test_spec(test_spec)
+      support_files_dir + "#{test_target_label(test_spec)}-Info.plist"
     end
 
-    # @return [Pathname] the absolute path of the prefix header file.
-    #
-    def prefix_header_path
-      support_files_dir + "#{label}-prefix.pch"
-    end
-
-    # @param  [Symbol] test_type
-    #         The test type prefix header path is for.
+    # @param  [Specification] test_spec
+    #         The test spec this prefix header path is for.
     #
     # @return [Pathname] the absolute path of the prefix header file for the given test type.
     #
-    def prefix_header_path_for_test_type(test_type)
-      support_files_dir + "#{test_target_label(test_type)}-prefix.pch"
+    def prefix_header_path_for_test_spec(test_spec)
+      support_files_dir + "#{test_target_label(test_spec)}-prefix.pch"
     end
 
     # @return [Array<String>] The names of the Pods on which this target
@@ -450,11 +434,13 @@ module Pod
     end
     private :_add_recursive_test_dependent_targets
 
+    # @param [Specification] test_spec
+    #
     # @return [Array<PodTarget>] the canonical list of dependent targets this target has a dependency upon.
     #         This list includes the target itself as well as its recursive dependent and test dependent targets.
     #
-    def all_dependent_targets
-      [self, *recursive_dependent_targets, *recursive_test_dependent_targets].uniq
+    def dependent_targets_for_test_spec(test_spec)
+      [self, *recursive_dependent_targets, *test_dependent_targets_by_spec_name[test_spec.name]].uniq
     end
 
     # Checks if warnings should be inhibited for this pod.
@@ -551,6 +537,21 @@ module Pod
     end
 
     private
+
+    # Get the relative path from the Pod Directory in sandbox directory.
+    #
+    # @param [Sandbox::FileAccessor] file_accessor @see #file_accessors
+    # @param [Pathname] The Pathname from the file_accessor
+    #
+    # @return [String] Like "PodName/path"
+    #
+    def relative_path_to_sandbox(file_accessor, path)
+      if file_accessor && file_accessor.root
+        sandbox.pod_relative_dir(pod_name) + path.relative_path_from(file_accessor.root)
+      else
+        path.relative_path_from(sandbox.root)
+      end
+    end
 
     def create_build_settings
       BuildSettings::PodTargetSettings.new(self)
