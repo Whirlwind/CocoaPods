@@ -13,6 +13,11 @@ To install release candidates run `[sudo] gem install cocoapods --pre`
   [Jenn Kaplan](https://github.com/jkap)
   [#7908](https://github.com/CocoaPods/CocoaPods/pull/7908)
 
+* Generate a separate app host per pod  
+  [Samuel Giddins](https://github.com/segiddins)
+  [Dimitris Koutsogiorgas](https://github.com/dnkoutso)  
+  [#8005](https://github.com/CocoaPods/CocoaPods/pull/8005)
+
 * Add default launch screen storyboard to test app hosts  
   [Dimitris Koutsogiorgas](https://github.com/dnkoutso)
   [#7971](https://github.com/CocoaPods/CocoaPods/pull/7971)
@@ -73,6 +78,10 @@ To install release candidates run `[sudo] gem install cocoapods --pre`
   [#7683](https://github.com/CocoaPods/CocoaPods/issues/7683)
 
 ##### Bug Fixes
+
+* Scope embedded pods to their host targets by their configuration  
+  [Dimitris Koutsogiorgas](https://github.com/dnkoutso)
+  [#8011](https://github.com/CocoaPods/CocoaPods/issues/8011)
 
 * Set the `SWIFT_VERSION` on resource bundle targets that contain compiled sources and use Swift  
   [Dimitris Koutsogiorgas](https://github.com/dnkoutso)

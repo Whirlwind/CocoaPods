@@ -289,7 +289,7 @@ module Pod
             !aggregate_user_target_uuids.intersection(host_target_uuids).empty?
           end
           embedded_aggregate_target.user_build_configurations.keys.each do |configuration_name|
-            embedded_pod_targets = embedded_aggregate_target.pod_targets.select do |pod_target|
+            embedded_pod_targets = embedded_aggregate_target.pod_targets_for_build_configuration(configuration_name).select do |pod_target|
               !pod_target_names.include? pod_target.name
             end
             embedded_pod_targets_by_build_config[configuration_name] = embedded_pod_targets
@@ -884,7 +884,7 @@ module Pod
       #
       def resolve_dependencies(locked_dependencies)
         duplicate_dependencies = podfile_dependencies.group_by(&:name).
-          select { |_name, dependencies| dependencies.select(&:external_source).count > 1 }
+          select { |_name, dependencies| dependencies.count(&:external_source) > 1 }
         duplicate_dependencies.each do |name, dependencies|
           UI.warn "There are duplicate dependencies on `#{name}` in #{UI.path podfile.defined_in_file}:\n\n" \
            "- #{dependencies.map(&:to_s).join("\n- ")}"
