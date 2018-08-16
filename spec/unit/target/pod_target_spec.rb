@@ -607,7 +607,6 @@ module Pod
           }
         end
 
-<<<<<<< HEAD
         it 'includes resource paths from test specifications' do
           config.sandbox.stubs(:project => stub(:path => temporary_directory + 'ProjectPath'))
           fa = Sandbox::FileAccessor.new(nil, @coconut_spec.consumer(@platform))
