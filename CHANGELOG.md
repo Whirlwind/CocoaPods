@@ -8,9 +8,35 @@ To install release candidates run `[sudo] gem install cocoapods --pre`
 
 ##### Enhancements
 
-* None.  
+* mark_ruby_file_ref add indent width and tab width config  
+  [dacaiguoguogmail](https://github.com/dacaiguoguogmail)
+
+* Print an error that will show up in Xcode's issue navigator upon unexpected
+  failures in the copy resources and embed frameworks script phases.  
+  [Samuel Giddins](https://github.com/segiddins)
+  
+* Validate that all generated `PBXNativeTarget`s contain source files to build,
+  so specs (including test specs) with no source files won't fail at runtime
+  due to the lack of a generated executable.  
+  [Samuel Giddins](https://github.com/segiddins)
+
+* Print better promote message when unable to find a specification.  
+  [Xinyu Zhao](https://github.com/X140Yu)
+  [#8064](https://github.com/CocoaPods/CocoaPods/issues/8064)
 
 ##### Bug Fixes
+  
+* Scope prefix header setting to each test spec.  
+  [Dimitris Koutsogiorgas](https://github.com/dnkoutso)
+  [#8046](https://github.com/CocoaPods/CocoaPods/pull/8046)
+
+* Don't add incomplete subspec subset targets for extensions.  
+  [Paul Beusterien](https://github.com/paulb777)
+  [#7850](https://github.com/CocoaPods/CocoaPods/issues/7850)
+
+* Clear out `MACH_O_TYPE` for unit test bundles that use static frameworks.  
+  [Dimitris Koutsogiorgas](https://github.com/dnkoutso)
+  [#8031](https://github.com/CocoaPods/CocoaPods/issues/8031)
 
 * Fix `weak_frameworks` missing regression.  
   [Dimitris Koutsogiorgas](https://github.com/dnkoutso)
@@ -19,6 +45,18 @@ To install release candidates run `[sudo] gem install cocoapods --pre`
 * Fix line spacing for Swift error message.  
   [Dimitris Koutsogiorgas](https://github.com/dnkoutso)
   [#8024](https://github.com/CocoaPods/CocoaPods/pull/8024)
+
+* Improve validation for test_specs on specific platforms  
+  [icecrystal23](https://github.com/icecrystal23)
+  [#7009](https://github.com/CocoaPods/CocoaPods/issues/7009)
+
+* Fix running `pod outdated` with externally-sourced pods.  
+  [Samuel Giddins](https://github.com/segiddins)
+  [#8025](https://github.com/CocoaPods/CocoaPods/issues/8025)
+
+* Remove codesign suppression  
+  [Jaehong Kang](https://github.com/sinoru)
+  [#7606](https://github.com/CocoaPods/CocoaPods/issues/7606)
 
 
 ## 1.6.0.beta.1 (2018-08-16)
@@ -301,7 +339,6 @@ To install release candidates run `[sudo] gem install cocoapods --pre`
 * Fix `assetcatalog_generated_info.plist` path in copy resources phase.  
   [Maxime Le Moine](https://github.com/MaximeLM)
   [#7590](https://github.com/CocoaPods/CocoaPods/issues/7590)
-
 
 ## 1.5.0 (2018-04-04)
 
