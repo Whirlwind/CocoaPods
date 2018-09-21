@@ -172,7 +172,7 @@ module Pod
       group = pod_group(pod_name)
       support_files_group = group['Support Files']
       unless support_files_group
-        support_files_group = group.new_group('Support Files', dir)
+        support_files_group = group.new_group('Support Files', dir, :project)
       end
       support_files_group
     end
@@ -208,7 +208,7 @@ module Pod
       end
 
       group = group_for_path_in_group(file_path_name, group, reflect_file_system_structure, base_path)
-      ref = group.new_file(file_path_name.cleanpath)
+      ref = group.new_file(file_path_name.exist? ? file_path_name.realpath : file_path_name.cleanpath)
       @refs_by_absolute_path[file_path_name.to_s] = ref
     end
 
@@ -365,6 +365,7 @@ module Pod
           # Make sure groups have the correct absolute path set, as intermittent
           # directories may not be included in the group structure
           path += name
+          path = path.realpath if path.exist?
           group = group.children.find { |c| c.display_name == name } || group.new_group(name, path)
         end
       end
