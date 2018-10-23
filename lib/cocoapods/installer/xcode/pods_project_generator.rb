@@ -67,6 +67,9 @@ module Pod
           @target_installation_results = install_targets
           integrate_targets(@target_installation_results.pod_target_installation_results)
           wire_target_dependencies(@target_installation_results)
+          project.development_pods.children.objects.each do |group|
+            group.set_path(group.real_path.realpath)
+          end
           @target_installation_results
         end
 
@@ -143,8 +146,7 @@ module Pod
             pod_names = pod_targets.map(&:pod_name).uniq
             pod_names.each do |pod_name|
               local = sandbox.local?(pod_name)
-              path = sandbox.pod_dir(pod_name)
-              path = path.realpath if path.exist?
+              path = sandbox.pod_realdir(pod_name)
               @project.add_pod_group(pod_name, path, local, false)
             end
 
@@ -170,7 +172,7 @@ module Pod
         end
 
         def install_file_references
-          installer = FileReferencesInstaller.new(sandbox, pod_targets, project)
+          installer = FileReferencesInstaller.new(sandbox, pod_targets, project, installation_options.preserve_pod_file_structure)
           installer.install!
         end
 
@@ -210,7 +212,7 @@ module Pod
           unless pod_installations_to_integrate.empty?
             UI.message '- Integrating targets' do
               pod_installations_to_integrate.each do |pod_target_installation_result|
-                PodTargetIntegrator.new(pod_target_installation_result).integrate!
+                PodTargetIntegrator.new(pod_target_installation_result, installation_options).integrate!
               end
             end
           end

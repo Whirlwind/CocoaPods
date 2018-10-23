@@ -8,6 +8,29 @@ To install release candidates run `[sudo] gem install cocoapods --pre`
 
 ##### Enhancements
 
+* None.  
+
+##### Bug Fixes
+
+* None.  
+
+
+## 1.6.0.beta.2 (2018-10-17)
+
+##### Enhancements
+
+* Remove contraction from docs to fix rendering on the website.  
+  [stevemoser](https://github.com/stevemoser)
+  [#8131](https://github.com/CocoaPods/CocoaPods/pull/8131)
+
+* Provide an installation option to preserve folder structure  
+  [dacaiguoguogmail](https://github.com/dacaiguoguogmail)
+  [#8097](https://github.com/CocoaPods/CocoaPods/pull/8097)
+
+* Nests test specs host apps inside that Pod's directory for cleaner project 
+  navigators.  
+  [Derek Ostrander](https://github.com/dostrander)
+   
 * mark_ruby_file_ref add indent width and tab width config  
   [dacaiguoguogmail](https://github.com/dacaiguoguogmail)
 
@@ -24,8 +47,32 @@ To install release candidates run `[sudo] gem install cocoapods --pre`
   [Xinyu Zhao](https://github.com/X140Yu)
   [#8064](https://github.com/CocoaPods/CocoaPods/issues/8064)
 
+* Silence warnings in headers for Pods with `inhibit_warnings => true`  
+  [Guillaume Algis](https://github.com/guillaumealgis)
+  [#6401](https://github.com/CocoaPods/CocoaPods/pull/6401)
+
+* When resolving a locked dependency, source the spec from the locked
+  specs repository.  
+  [Samuel Giddins](https://github.com/segiddins)
+
+* Slightly improve resolution speed for Podfiles that contain multiple targets
+  with the same dependencies.  
+  [Samuel Giddins]
+
 ##### Bug Fixes
-  
+
+* Don't generate unencrypted source warnings for localhost.  
+  [Paul Beusterien](https://github.com/paulb777)
+  [#8156](https://github.com/CocoaPods/CocoaPods/issues/8156)
+
+* Fix linting when armv7 is included but i386 isn't.  
+  [Paul Beusterien](https://github.com/paulb777)
+  [#8129](https://github.com/CocoaPods/CocoaPods/issues/8129)
+
+* Provide an installation option to disable usage of input/output paths.  
+  [Dimitris Koutsogiorgas](https://github.com/dnkoutso)
+  [#8073](https://github.com/CocoaPods/CocoaPods/issues/8073)
+
 * Scope prefix header setting to each test spec.  
   [Dimitris Koutsogiorgas](https://github.com/dnkoutso)
   [#8046](https://github.com/CocoaPods/CocoaPods/pull/8046)
