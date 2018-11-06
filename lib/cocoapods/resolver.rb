@@ -1,4 +1,5 @@
 require 'molinillo'
+require 'cocoapods/podfile'
 
 module Pod
   class NoSpecFoundError < Informative
@@ -13,10 +14,6 @@ module Pod
   class Resolver
     require 'cocoapods/resolver/lazy_specification'
     require 'cocoapods/resolver/resolver_specification'
-
-    include Pod::Installer::InstallationOptions::Mixin
-
-    delegate_installation_options { podfile }
 
     # @return [Sandbox] the Sandbox used by the resolver to find external
     #         dependencies.
@@ -109,10 +106,10 @@ module Pod
           resolver_specs_by_target[target] = vertices.
             map do |vertex|
               payload = vertex.payload
-              test_only = (!explicit_dependencies.include?(vertex.name) || payload.test_specification?) &&
+              non_library = (!explicit_dependencies.include?(vertex.name) || payload.test_specification? || payload.app_specification?) &&
                 (vertex.recursive_predecessors & vertices).all? { |v| !explicit_dependencies.include?(v.name) || v.payload.test_specification? }
               spec_source = payload.respond_to?(:spec_source) && payload.spec_source
-              ResolverSpecification.new(payload, test_only, spec_source)
+              ResolverSpecification.new(payload, non_library, spec_source)
             end.
             sort_by(&:name)
         end
@@ -340,7 +337,7 @@ module Pod
     def specifications_for_dependency(dependency, additional_requirements = [])
       requirement = Requirement.new(dependency.requirement.as_list + additional_requirements.flat_map(&:as_list))
       find_cached_set(dependency).
-        all_specifications(installation_options.warn_for_multiple_pod_sources).
+        all_specifications(warn_for_multiple_pod_sources).
         select { |s| requirement.satisfied_by? s.version }.
         map { |s| s.subspec_by_name(dependency.name, false, true) }.
         compact
@@ -511,7 +508,7 @@ Note: as of CocoaPods 1.0, `pod repo update` does not happen on `pod install` by
     #
     # @param  [Dependency] dependency
     #
-    # @param  [Specification] specification
+    # @param  [Specification] spec
     #
     # @return [Bool]
     def spec_is_platform_compatible?(dependency_graph, dependency, spec)
@@ -580,6 +577,12 @@ Note: as of CocoaPods 1.0, `pod repo update` does not happen on `pod install` by
       end
 
       @edge_validity[EdgeAndPlatform.new(edge, target_platform)]
+    end
+
+    # @return [Boolean] whether to emit a warning when a pod is found in multiple sources
+    #
+    def warn_for_multiple_pod_sources
+      podfile.installation_options.warn_for_multiple_pod_sources
     end
   end
 end

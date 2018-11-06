@@ -69,6 +69,11 @@ module Pod
 
       # Cleans the installations if appropriate.
       #
+      # Cleaning the installation will remove any files that are not used during the build process, based on
+      # the podspec and platforms of the target that the pod is integrated into.
+      #
+      # @see {#clean_installation}
+      #
       # @return [void]
       #
       def clean!
@@ -160,6 +165,10 @@ module Pod
         )
       end
 
+      #-----------------------------------------------------------------------#
+
+      private
+
       # Removes all the files not needed for the installation according to the
       # specs by platform.
       #
@@ -169,10 +178,6 @@ module Pod
         cleaner = Sandbox::PodDirCleaner.new(root, specs_by_platform)
         cleaner.clean!
       end
-
-      #-----------------------------------------------------------------------#
-
-      private
 
       # @!group Convenience methods.
 

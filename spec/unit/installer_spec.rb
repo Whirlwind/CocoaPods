@@ -18,6 +18,7 @@ end
 def generate_podfile(pods = ['JSONKit'])
   Pod::Podfile.new do
     platform :ios
+    install! 'cocoapods', :integrate_targets => false
     project SpecHelper.fixture('SampleProject/SampleProject'), 'Test' => :debug, 'App Store' => :release
     target 'SampleProject' do
       pods.each { |name| pod name }
@@ -52,7 +53,6 @@ module Pod
       podfile = generate_podfile
       lockfile = generate_lockfile
       @installer = Installer.new(config.sandbox, podfile, lockfile)
-      @installer.installation_options.integrate_targets = false
     end
 
     #-------------------------------------------------------------------------#
@@ -69,7 +69,7 @@ module Pod
         @installer.stubs(:perform_post_install_actions)
         Installer::Xcode::PodsProjectGenerator.any_instance.stubs(:share_development_pod_schemes)
         Installer::Xcode::PodsProjectGenerator.any_instance.stubs(:generate!)
-        Installer::Xcode::PodsProjectGenerator.any_instance.stubs(:write)
+        Installer::Xcode::PodsProjectGenerator.stubs(:write)
       end
 
       it 'in runs the pre-install hooks before cleaning the Pod sources' do
@@ -92,12 +92,13 @@ module Pod
         @installer.unstub(:generate_pods_project)
         generator = @installer.send(:create_generator)
         @installer.stubs(:create_generator).returns(generator)
-        generator.stubs(:generate!)
+        generator_result = Installer::Xcode::PodsProjectGenerator::PodsProjectGeneratorResult.new(nil, [])
+        generator.stubs(:generate!).returns(generator_result)
         generator.stubs(:share_development_pod_schemes)
 
         hooks = sequence('hooks')
         @installer.expects(:run_podfile_post_install_hooks).once.in_sequence(hooks)
-        generator.expects(:write).once.in_sequence(hooks)
+        Installer::Xcode::PodsProjectGenerator.expects(:write).once.in_sequence(hooks)
 
         @installer.install!
       end
@@ -170,13 +171,13 @@ module Pod
       end
 
       it 'integrates the user targets if the corresponding config is set' do
-        @installer.installation_options.integrate_targets = true
+        @installer.stubs(:installation_options).returns(Pod::Installer::InstallationOptions.new(:integrate_targets => true))
         @installer.expects(:integrate_user_project)
         @installer.install!
       end
 
       it "doesn't integrates the user targets if the corresponding config is not set" do
-        @installer.installation_options.integrate_targets = false
+        @installer.stubs(:installation_options).returns(Pod::Installer::InstallationOptions.new(:integrate_targets => false))
         @installer.expects(:integrate_user_project).never
         @installer.install!
         UI.output.should.include 'Skipping User Project Integration'
@@ -256,6 +257,8 @@ module Pod
           pod 'matryoshka',      :path => (fixture_path + 'matryoshka').to_s
           pod 'monkey',          :path => (fixture_path + 'monkey').to_s
 
+          install! 'cocoapods', :integrate_targets => false
+
           target 'SampleProject'
           target 'TestRunner' do
             inherit! :search_paths
@@ -267,7 +270,6 @@ module Pod
         lockfile = generate_lockfile
 
         @installer = Installer.new(config.sandbox, podfile, lockfile)
-        @installer.installation_options.integrate_targets = false
         @installer.install!
 
         target = @installer.aggregate_targets.first
@@ -362,8 +364,9 @@ module Pod
           @analysis_result = Installer::Analyzer::AnalysisResult.new(Pod::Installer::Analyzer::SpecsState.new, {}, {},
                                                                      [], Pod::Installer::Analyzer::SpecsState.new, [], [],
                                                                      Installer::Analyzer::PodfileDependencyCache.from_podfile(@installer.podfile))
-          @spec = stub(:name => 'Spec', :test_specification? => false)
+          @spec = stub(:name => 'Spec', :test_specification? => false, :library_specification? => true, :app_specification? => false)
           @spec.stubs(:root => @spec)
+          @spec.stubs(:spec_type).returns(:library)
           @pod_targets = [PodTarget.new(config.sandbox, false, {}, [], Platform.ios, [@spec],
                                         [fixture_target_definition], nil)]
           @installer.stubs(:analysis_result).returns(@analysis_result)
@@ -656,7 +659,7 @@ module Pod
 
         describe '#clean' do
           it 'it cleans only if the config instructs to do it' do
-            @installer.installation_options.clean = false
+            @installer.stubs(:installation_options).returns(Pod::Installer::InstallationOptions.new(:clean => false))
             @installer.send(:clean_pod_sources)
             Installer::PodSourceInstaller.any_instance.expects(:install!).never
           end
@@ -794,10 +797,10 @@ module Pod
     describe 'Podfile Hooks' do
       before do
         podfile = Pod::Podfile.new do
+          install! 'cocoapods', :integrate_targets => false
           platform :ios
         end
         @installer = Installer.new(config.sandbox, podfile)
-        @installer.installation_options.integrate_targets = false
       end
 
       it 'runs the pre install hooks' do
@@ -850,7 +853,6 @@ module Pod
         lockfile = generate_lockfile
 
         @installer = Installer.new(config.sandbox, podfile, lockfile)
-        @installer.expects(:integrate_user_project)
         @installer.install!
 
         ::SpecHelper.reset_config_instance
