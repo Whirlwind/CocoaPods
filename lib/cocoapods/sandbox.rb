@@ -428,43 +428,5 @@ module Pod
       root_name = Specification.root_name(name)
       development_pods[root_name]
     end
-
-    #-------------------------------------------------------------------------#
-    #
-    # Every pod have its own sandbox, because the pod maybe a local pod and it make a
-    # symbol link `Pods/` link to the main sandbox directory.
-    #
-    # CocoaPods create a shadow sandbox to forward all methods to main sandbox buts some
-    # methods about the path. It create a symlink if root is not the main sanbox.
-    #
-    class ShadowSandbox < Sandbox
-      attr_reader :root
-
-      def initialize(root, sandbox)
-        if root != sandbox.root
-          FileUtils.rm_r(root) if root.exist? || root.symlink?
-          File.symlink(sandbox.root, root)
-        end
-        @root = root
-        @sandbox = sandbox
-      end
-
-      extend Forwardable
-      def_delegators  :@sandbox,
-                      :public_headers,
-                      :project,
-                      :specification,
-                      :store_podspec,
-                      :store_pre_downloaded_pod,
-                      :predownloaded_pods,
-                      :predownloaded?,
-                      :store_checkout_source,
-                      :remove_checkout_source,
-                      :checkout_sources,
-                      :store_local_path,
-                      :development_pods,
-                      :local?,
-                      :local_podspec
-    end
   end
 end

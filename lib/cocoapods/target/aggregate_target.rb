@@ -67,8 +67,6 @@ module Pod
     #
     def initialize(sandbox, host_requires_frameworks, user_build_configurations, archs, platform, target_definition,
                    client_root, user_project, user_target_uuids, pod_targets_for_build_configuration)
-      sandbox_use_symlink = self.class.check_user_project_is_symlink(user_project, sandbox)
-      sandbox = Sandbox::ShadowSandbox.new(sandbox_use_symlink ? client_root + 'Pods' : sandbox.root, sandbox)
       super(sandbox, host_requires_frameworks, user_build_configurations, archs, platform)
       raise "Can't initialize an AggregateTarget without a TargetDefinition!" if target_definition.nil?
       raise "Can't initialize an AggregateTarget with an abstract TargetDefinition!" if target_definition.abstract?
@@ -375,19 +373,6 @@ module Pod
       end
 
       settings
-    end
-
-    public
-
-    def self.check_user_project_is_symlink(user_project, sandbox)
-      if user_project && user_project.path && user_project.path.exist? && sandbox.root.exist?
-        relative_cleanpath = user_project.path.cleanpath.relative_path_from(sandbox.root.cleanpath)
-        relative_realpath = user_project.path.realpath.relative_path_from(sandbox.root.realpath)
-        relative_cleanpath != relative_realpath
-        # Pathname.realpath will return false if the directory is a symlink
-      else
-        false
-      end
     end
   end
 end
