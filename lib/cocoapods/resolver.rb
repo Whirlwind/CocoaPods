@@ -133,17 +133,10 @@ module Pod
     #
     def search_for(dependency)
       @search[dependency] ||= begin
-        deps_with_external_source = @podfile_dependency_cache.podfile_dependencies.select(&:external_source)
-        deps_with_external_source = deps_with_external_source.select { |dep| dep.root_name == dependency.root_name }
-        if deps_with_external_source.count > 0
-          spec = sandbox.specification(dependency.root_name)
-          [spec.subspec_by_name(dependency.name, false, true)]
-        else
-          locked_requirement = requirement_for_locked_pod_named(dependency.name)
-          podfile_deps = Array(@podfile_requirements_by_root_name[dependency.root_name])
-          podfile_deps << locked_requirement if locked_requirement
-          specifications_for_dependency(dependency, podfile_deps)
-        end
+        locked_requirement = requirement_for_locked_pod_named(dependency.name)
+        podfile_deps = Array(@podfile_requirements_by_root_name[dependency.root_name])
+        podfile_deps << locked_requirement if locked_requirement
+        specifications_for_dependency(dependency, podfile_deps)
       end
       @search[dependency].dup
     end
