@@ -33,6 +33,7 @@ module Pod
         SWIFT_INCLUDE_PATHS
         WARNING_CFLAGS
         WARNING_LDFLAGS
+        USER_HEADER_SEARCH_PATHS
       ).to_set.freeze
 
       # @return [String]
