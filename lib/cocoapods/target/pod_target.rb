@@ -626,7 +626,7 @@ module Pod
     # @return [String] The source path of the root for this target relative to `$(PODS_ROOT)`
     #
     def pod_target_srcroot
-      "${PODS_ROOT}/#{sandbox.pod_dir(pod_name).relative_path_from(sandbox.root)}"
+      "${PODS_ROOT}/#{sandbox.pod_realdir(pod_name).relative_path_from(sandbox.root)}"
     end
 
     # @return [String] The version associated with this target
